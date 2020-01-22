@@ -17,7 +17,7 @@
 %%% {rect, SizeX, SizeY}     -    A rectangular region of size SizeX x SizeY
 %%% {cross, SizeX, SizeY}    -    A cross region of size SizeX x SizeY (same as rect but
 %%%                                 ignoring neighbours not on same axis as the element)
-%%%
+%%% {coords, [{-1,-1},{0,0},{1,1},...]} - Defined list of offset coordinates from 0,0
 %%%
 %%% @end
 %%%----------------------------------------------------------------------------
@@ -36,7 +36,8 @@ start(NextPid, TNeighbourhood) ->
     sk_tracer:t(75, self(), {?MODULE, start}, []),
     DMs = loop(NextPid, []),
     StencilData = new_stencil(DMs, TNeighbourhood),
-    send_data(NextPid, StencilData).
+    send_data(NextPid, StencilData),
+    io:format("sk_stencil_partitioner finished~n").
 
 -spec loop(pid(), list()) -> 'eos'.
 %% @doc Recursively receives input, accumulating the data messages into a single
@@ -53,28 +54,31 @@ loop(NextPid, Accum) ->
 %% @doc Generalising neighbourhood schemes, reducing number of overflow functions later on,
 %% used to init a new stencil
 new_stencil(ListArray, {square, Offset}) ->
-    stencil(ListArray, {rect, Offset, Offset});
+    stencil(ListArray, neighbourhood_rect(Offset, Offset));
 new_stencil(ListArray, {rect, OffsetX, OffsetY}) ->
-    stencil(ListArray, {rect, OffsetX, OffsetY});
+    stencil(ListArray, neighbourhood_rect(OffsetX, OffsetY));
 new_stencil(ListArray, {cross, Offset}) ->
-    stencil(ListArray, {cross, Offset, Offset});
+    stencil(ListArray, neighbourhood_cross(Offset, Offset));
 new_stencil(ListArray, {cross, OffsetX, OffsetY}) ->
-    stencil(ListArray, {cross, OffsetX, OffsetY}).
+    stencil(ListArray, neighbourhood_cross(OffsetX, OffsetY));
+new_stencil(ListArray, {coords, CoordList}) ->
+    stencil(ListArray, CoordList).
 
 %% @doc Accepts a list of lists and neighbourhood scheme, recursively iterates each element in
 %% each list, adding it to a new array containing neighbourhood'd elements
 stencil(ListArray = [[_|_]|_], TNeighbourhood) ->
-    Array = to_array_2d(ListArray),
-    Size = {array:size(array:get(0, Array)), array:size(Array)},
-    stencil(Array, TNeighbourhood, {0,0}, Size, new_array_2d(Size)).
+    OrigArray = to_array_2d(ListArray),
+    Size = {array:size(array:get(0, OrigArray)), array:size(OrigArray)},
+    stencil(OrigArray, TNeighbourhood, {0,0}, Size, new_array_2d(Size)).
 
-stencil(Array, TNeighbourhood, Pos = {Px, Py}, Size = {Sx, _Sy}, Accum) when Px < Sx ->
-    NewAccum = add_to_neighbours(get_2d(Array, {Px,Py}), Pos, TNeighbourhood, Accum),
-    stencil(Array, TNeighbourhood, {Px+1, Py}, Size, NewAccum);
-stencil(Array, TNeighbourhood, {_Px, Py}, Size = {_Sx, Sy}, Accum) when Py < Sy-1 ->
-    stencil(Array, TNeighbourhood, {0, Py+1}, Size, Accum);
-stencil(_Array, _TNeighbourhood, _Pos, _Size, Accum) -> 
-    to_list_2d(Accum).
+stencil(OrigArray, Neighbourhood, Pos = {Px, Py}, Size = {Sx, _Sy}, NewArray) when Px < Sx ->
+    Neighbours = get_neighbours(OrigArray, Size, {Px,Py}, Neighbourhood, []),
+    UpdatedArray = set_2d(NewArray, Pos, Neighbours),
+    stencil(OrigArray, Neighbourhood, {Px+1, Py}, Size, UpdatedArray);
+stencil(OrigArray, Neighbourhood, {_Px, Py}, Size = {_Sx, Sy}, NewArray) when Py < Sy-1 ->
+    stencil(OrigArray, Neighbourhood, {0, Py+1}, Size, NewArray);
+stencil(_OrigArray, _Neighbourhood, _Pos, _Size, NewArray) -> 
+    to_list_2d(NewArray).
 
 %% @doc Recursively sends each new sub-list to next workflow item
 send_data(NextPid, [H|T]) ->
@@ -87,52 +91,48 @@ send_data(NextPid, []) ->
     NextPid ! {system, eos},
     eos.
 
-%% Determines what neighbourhood scheme to use then adds Element to all
-%% associated neighbours.
-add_to_neighbours(Element, _Pos = {Px,Py}, {rect, Sx, Sy}, Accum) ->
-    rect_neighbourhood(Element, {Px-(Sx-1)/2, Py-((Sy-1)/2)}, {Sx, Sy}, Sx, Accum);
-add_to_neighbours(Element, _Pos = {Px,Py}, {cross, Sx, Sy}, Accum) ->
-    cross_neighbourhood(Element, {Px, Py-((Sy-1)/2)}, {Sx, Sy}, Sy, Accum).
+%% Recurses through each relative coordinate in the neighbourhood, retrieving
+%% the associated value from the original array and appending it to a new sub-list
+%% within the new array at the same position.
+get_neighbours(OrigArray, ASize = {ASx, ASy}, Pos = {Px,Py}, [{Hx,Hy}|T], Accum) when 
+    Px+Hx >= 0,
+    Px+Hx < ASx,
+    Py+Hy >= 0,
+    Py+Hy < ASy 
+->
+    get_neighbours(OrigArray, ASize, Pos, T, [get_2d(OrigArray, {Px+Hx,Py+Hy})|Accum]);
+get_neighbours(OrigArray, ASize, Pos, [_H|T], Accum) ->
+    get_neighbours(OrigArray, ASize, Pos, T, Accum);
+get_neighbours(_,_,_,[], Accum) ->
+    Accum.
 
-%% @doc Recursively adds Element to all neighbours in a rectangular region, 
-%% returning the newly updated array. Recurses from top left element to
-%% bottom right.
-rect_neighbourhood(Element, {Px,Py}, {Sx, Sy}, Xlen, Accum) when Px < 0 ->                  % Skipping out of range positions
-    rect_neighbourhood(Element, {Px+1,Py}, {Sx-1, Sy}, Xlen, Accum);
-rect_neighbourhood(Element, {Px,Py}, {Sx, Sy}, Xlen, Accum) when Py < 0 ->
-    rect_neighbourhood(Element, {Px,Py+1}, {Sx, Sy-1}, Xlen, Accum);
 
-rect_neighbourhood(Element, Pos = {Px,Py}, {Sx, Sy}, Xlen, Accum) when Sx > 0, Sy > 0 ->    % Attempt add element to array, increasing X pos
-    Res = (catch set_2d(Accum, Pos, get_2d(Accum, Pos)++[Element])),
-    case Res of
-        {array, _, _, _, _} ->
-            rect_neighbourhood(Element, {Px+1,Py}, {Sx-1, Sy}, Xlen, Res);
-        _ ->
-            rect_neighbourhood(Element, {Px+1,Py}, {Sx-1, Sy}, Xlen, Accum)
-    end;
-rect_neighbourhood(Element, {Px,Py}, {_Sx, Sy}, Xlen, Accum) when Sy > 0 ->                 % Increase Y pos or return
-    rect_neighbourhood(Element, {Px-Xlen, Py+1}, {Xlen,Sy-1},Xlen,Accum);
-rect_neighbourhood(_Element, _Pos, _Size, _Xlen, Accum)-> Accum.
+%% @doc Generates a list of neighbourhood offset coordinates relative to 0,0.
+%% Can generate either square region or cross shaped region
+neighbourhood_rect(X,Y) ->
+    rect({trunc(-X/2),trunc(-Y/2)},{X,Y},X, []).
+rect({Px, Py},{Sx, Sy}, OrigX, Accum) when Sx > 0 ->
+    rect({Px+1, Py},{Sx-1, Sy}, OrigX, [{Px,Py}|Accum]);
+rect({_Px, Py},{_Sx, Sy}, OrigX, Accum) when Sy > 1 ->
+    rect({trunc(-OrigX/2), Py+1},{OrigX, Sy-1}, OrigX, Accum);
+rect(_,_,_,Accum) ->
+    Accum.
 
-%% @doc Recursively adds Element to all neighbours in a cross region, 
-%% returning the newly updated array. Recurses from top left element to
-%% bottom right.
-cross_neighbourhood(Element, {Px,Py}, {Sx, Sy}, Ylen, Accum) when Px < 0, Py =/= (Ylen/2) ->                  % Skipping out of range positions
-    cross_neighbourhood(Element, {Px+1,Py}, {Sx-1, Sy}, Xlen, Accum);
-cross_neighbourhood(Element, {Px,Py}, {Sx, Sy}, Xlen, Accum) when Py < 0 ->
-    cross_neighbourhood(Element, {Px,Py+1}, {Sx, Sy-1}, Xlen, Accum);
+neighbourhood_cross(X,Y) ->
+    cross_x(trunc(-X/2), X, [])
+        ++ cross_y(trunc(-Y/2), Y, []).
 
-cross_neighbourhood(Element, Pos = {Px,Py}, {Sx, Sy}, Xlen, Accum) when Sx > 0, Sy > 0 ->    % Attempt add element to array, increasing X pos
-    Res = (catch set_2d(Accum, Pos, get_2d(Accum, Pos)++[Element])),
-    case Res of
-        {array, _, _, _, _} ->
-            cross_neighbourhood(Element, {Px+1,Py}, {Sx-1, Sy}, Xlen, Res);
-        _ ->
-            cross_neighbourhood(Element, {Px+1,Py}, {Sx-1, Sy}, Xlen, Accum)
-    end;
-cross_neighbourhood(Element, {Px,Py}, {_Sx, Sy}, Xlen, Accum) when Sy > 0 ->                 % Increase Y pos or return
-    cross_neighbourhood(Element, {Px-Xlen, Py+1}, {Xlen,Sy-1},Xlen,Accum);
-cross_neighbourhood(_Element, _Pos, _Size, _Xlen, Accum)-> Accum.
+cross_x(Px, Len, Accum) when Len > 0 -> 
+    cross_x(Px+1, Len-1, [{Px,0}|Accum]);
+cross_x(_,_, Accum) -> 
+    Accum.
+cross_y(Py, Len, Accum) when Len > 0, Py =/= 0 -> 
+    cross_y(Py+1, Len-1, [{0,Py}|Accum]);
+cross_y(Py, Len, Accum) when Len > 0 -> 
+    cross_y(Py+1, Len-1, Accum);
+cross_y(_,_, Accum) -> 
+    Accum.
+
 
 
 %% @doc Converts a 2-dimentional list into a 2-dimentional array via the 
