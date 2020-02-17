@@ -1,7 +1,7 @@
 -module(sk_stencil).
 
 -export([
-        make/2
+        make/3
         ]).
 
 -include("skel.hrl").
@@ -10,16 +10,16 @@
 -compile(export_all).
 -endif.
 
--spec make(workflow(), pos_integer()) -> maker_fun().
+-spec make(function(), pos_integer(), pos_integer()) -> maker_fun().
 
-make(WorkFlow, NSize) when is_integer(NSize) ->
+make(WorkerFun, NumWorkers, NSize) when is_integer(NSize) ->
     fun(NextPid) ->
-        WorkerPid = sk_utils:start_worker(WorkFlow, NextPid),
-        spawn(sk_stencil_partitioner, start, [WorkerPid, {square, NSize}])
+        Combiner = spawn(sk_stencil_combiner, start, [NextPid, NumWorkers]),
+        spawn(sk_stencil_partitioner, start, [Combiner, WorkerFun, NumWorkers, {square, NSize}])
     end;
 
-make(WorkFlow, TNeighbourhood) ->
+make(WorkerFun, NumWorkers, TNeighbourhood) ->
     fun(NextPid) ->
-        WorkerPid = sk_utils:start_worker(WorkFlow, NextPid),
-        spawn(sk_stencil_partitioner, start, [WorkerPid, TNeighbourhood])
+        Combiner = spawn(sk_stencil_combiner, start, [NextPid, NumWorkers]),
+        spawn(sk_stencil_partitioner, start, [Combiner, WorkerFun, NumWorkers, TNeighbourhood])
     end.

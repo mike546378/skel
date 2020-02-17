@@ -69,8 +69,8 @@ parse({pipe, WorkFlow}) ->
   sk_pipe:make(WorkFlow);
 parse({ord, WorkFlow}) ->
   sk_ord:make(WorkFlow);
-parse({stencil, WorkFlow, NSize}) ->
-  sk_stencil:make(WorkFlow, NSize);
+parse({stencil, WorkerFun, NumWorkers, Neighbourhood}) ->
+  sk_stencil:make(WorkerFun, NumWorkers, Neighbourhood);
 parse({farm, WorkFlow, NWorkers}) ->
   sk_farm:make(NWorkers, WorkFlow);
 parse({hyb_farm, WorkFlowCPU, WorkFlowGPU, NCPUWorkers, NGPUWorkers}) ->
