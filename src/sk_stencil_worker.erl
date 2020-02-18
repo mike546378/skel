@@ -95,6 +95,8 @@ new_stencil(ListArray,StartPos, RowCount, {coords, CoordList}) ->
 
 %% @doc Accepts a list of lists and neighbourhood scheme, recursively iterates each element in
 %% each list, adding it to a new array containing neighbourhood'd elements
+stencil(_ListArray = [], _StartPos, _RowCount, _TNeighbourhood) -> [];
+
 stencil(ListArray = [[_|_]|_], StartPos, RowCount, TNeighbourhood) ->
     OrigArray = to_array_2d(ListArray),
     Size = {array:size(array:get(0, OrigArray)), array:size(OrigArray)},
@@ -108,17 +110,6 @@ stencil(OrigArray, Neighbourhood, {_Px, Py}, Size = {_Sx, Sy}, RowCount, NewArra
     stencil(OrigArray, Neighbourhood, {0, Py+1}, Size, RowCount-1, NewArray);
 stencil(_OrigArray, _Neighbourhood, _Pos, _Size, _RowCount, NewArray) -> 
     to_list_2d(NewArray).
-
-%% @doc Recursively sends each new sub-list to next workflow item
-send_data(NextPid, [H|T]) ->
-    Message = {data, H, []},
-    sk_tracer:t(50, self(), NextPid, {?MODULE, data}, [{output, Message}]),
-    NextPid ! Message,
-    send_data(NextPid, T);
-send_data(NextPid, []) ->
-    sk_tracer:t(75, self(), NextPid, {?MODULE, system}, [{message, eos}]),
-    NextPid ! {system, eos},
-    eos.
 
 %% Recurses through each relative coordinate in the neighbourhood, retrieving
 %% the associated value from the original array and appending it to a new sub-list

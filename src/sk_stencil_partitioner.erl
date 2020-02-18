@@ -92,9 +92,10 @@ emitter([DHead|DTail], StartPositions, [StopH|StopT], WorkerPids, [ActivePidH|Ac
     when CurrentPos >= StopH ->
     broadcast({system, eos}, [ActivePidH]),
     emitter([DHead|DTail], StartPositions, StopT, WorkerPids, ActivePidT, CurrentPos);
-emitter(Data, _StartPositions, _StopPositions, _WorkerPids, ActivePids, _CurrentPos)
+emitter(Data, _StartPositions, _StopPositions, WorkerPids, ActivePids, _CurrentPos)
     when Data == [] ->
-    broadcast({system, eos}, ActivePids);
+    broadcast({system, eos}, ActivePids),
+    broadcast({system, eos}, WorkerPids);
 emitter([DHead|DTail], StartPositions, StopPositions, WorkerPids, ActivePids, CurrentPos) ->
     broadcast({data, DHead}, ActivePids),
     emitter(DTail, StartPositions, StopPositions, WorkerPids, ActivePids, CurrentPos+1).
