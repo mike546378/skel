@@ -34,7 +34,7 @@
 -spec start(pid(), tuple()) -> 'eos'.
 start(NextPid, NumWorkers) ->
     sk_tracer:t(75, self(), {?MODULE, start}, []),
-    DMs = loop([],0,[],NumWorkers),
+    DMs = loop([],0,maps:new(),NumWorkers),
     sk_tracer:t(50, self(), NextPid, {?MODULE, data}, [{output, DMs}]),
     NextPid ! {data, DMs, []},
     NextPid ! {system, eos}.
@@ -44,7 +44,6 @@ start(NextPid, NumWorkers) ->
 %% 2-dimentional list which can then have the stencil functions applied to it.
 loop(Accum, WorkersReceived, _OrdBuffer, TotalWorkers) when WorkersReceived == TotalWorkers -> combine(Accum, []);
 loop(Accum, WorkersReceived, OrdBuffer, TotalWorkers) ->
-  %io:format("~lp~n~n", [OrdBuffer]),
   receive
     {sk_stencil_worker, Index, Data} ->
       case Index of
@@ -52,7 +51,7 @@ loop(Accum, WorkersReceived, OrdBuffer, TotalWorkers) ->
           {NewAccum, NewWorkerCount, NewBuffer} = flush_buffer([Data|Accum], WorkersReceived+1, OrdBuffer),
           loop(NewAccum, NewWorkerCount, NewBuffer, TotalWorkers);
         _ ->
-          loop(Accum, WorkersReceived, [{Index, Data}|OrdBuffer], TotalWorkers)
+          loop(Accum, WorkersReceived, maps:put(Index, Data, OrdBuffer), TotalWorkers)
         end
   end.
 
@@ -62,12 +61,11 @@ combine(Data, Accum) ->
   combine(T, H++Accum).
 
 %% @doc Iterates the buffer to find next index to add to accumulator
-flush_buffer(Data, Index, Buffer) -> flush_buffer(Data, Index, Buffer, []).
-flush_buffer(Data, Index, [], []) -> {Data, Index, []};
-flush_buffer(Data, Index, [{HIndex, HBuffer}|T], BufferAccum) when Index == HIndex -> 
-  NewData = [HBuffer|Data],
-  flush_buffer(NewData, Index+1, T ++ BufferAccum, []);
-flush_buffer(NewData, Index, [{_HIndex, _HBuffer} = OrdBufferH|T], BufferAccum) ->
-  flush_buffer(NewData, Index, T, [OrdBufferH|BufferAccum]);
-flush_buffer(NewData, Index, [], BufferAccum) -> {NewData, Index, BufferAccum};
-flush_buffer(NewData, Index, [OrdBufferH|T], BufferAccum) -> io:format("ERROR: ~lp~n", [OrdBufferH]).
+flush_buffer(Data, Index, Buffer) -> flush_buffer(Data, Index, Buffer, maps:is_key(Index, Buffer)).
+flush_buffer(Data, Index, Buffer, false) -> {Data, Index, Buffer};
+flush_buffer(Data, Index, Buffer, true) ->
+  KeyValue = maps:get(Index, Buffer), 
+  NewData = [KeyValue|Data],
+  NewBuffer = maps:remove(Index, Buffer),
+  flush_buffer(NewData, Index+1, NewBuffer, maps:is_key(Index+1, Buffer)).
+
