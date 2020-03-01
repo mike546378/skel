@@ -50,7 +50,11 @@ loop(Accum) ->
     {data, Value, _Idx} ->
       loop([Value|Accum]);
     {system, eos} ->
-        lists:reverse(Accum)
+        [H|_T] = Accum,
+        case length(Accum) of
+            1 -> H;
+            _ -> lists:reverse(Accum)
+        end
   end.
 
 %% @doc Spawns N number of sk_stencil_worker processes, returning their PID's as a list
