@@ -9,18 +9,15 @@
 %%% element becomes a sub-list containing all its neighbours in a desired region
 %%% determined by the provided neighbourhood scheme. 
 %%%
-%%% NOTE: All neighbourhood sizes should be odd unless you wish uneven distribution 
-%%% on either side of each element
-%%%
-%%% Possible neighbourhood schemes;
-%%% {square, Size}           -    A square region of size Size x Size
-%%% {rect, SizeX, SizeY}     -    A rectangular region of size SizeX x SizeY
-%%% {cross, SizeX, SizeY}    -    A cross region of size SizeX x SizeY (same as rect but
-%%%                                 ignoring neighbours not on same axis as the element)
-%%% {coords, [{-1,-1},{0,0},{1,1},...]} - Defined list of offset coordinates from 0,0
-%%%
+%%% The partitioner recieves all data messages from a prior workflow, spawns
+%%% the desired number of workers requested by the user then batches and 
+%%% distributes the data message rows based on the input stencil partitioning
+%%% scheme.
+%%% 
 %%% @end
+%%% 
 %%%----------------------------------------------------------------------------
+
 -module(sk_stencil_partitioner).
 
 -export([
@@ -29,8 +26,8 @@
 
 -include("skel.hrl").
 
-%% @doc Starts the tagger, labelling each input so that the order of all 
-%% inputs is recorded. 
+%% @doc Starts the stencil partitioner, generating and distributing 
+%% batches of data to all workers
 -spec start(pid(), function(), integer(), tuple()) -> 'eos'.
 start(CombinerPID, WorkerFun, NumWorkers, TNeighbourhood) ->
     sk_tracer:t(75, self(), {?MODULE, start}, []),
@@ -50,7 +47,11 @@ loop(Accum) ->
     {data, Value, _Idx} ->
       loop([Value|Accum]);
     {system, eos} ->
-        lists:reverse(Accum)
+        [H|_T] = Accum,
+        case length(Accum) of
+            1 -> H;
+            _ -> lists:reverse(Accum)
+        end
   end.
 
 %% @doc Spawns N number of sk_stencil_worker processes, returning their PID's as a list
@@ -78,7 +79,9 @@ generate_windows(_,_,_,{StartPositions, StopPositions},_)->
     {lists:reverse(StartPositions), lists:reverse(StopPositions)}.
 
 -spec emitter(list(), tuple(), list()) -> 'eos'.
-%% @doc splits data messages into windowed messages and sends to worker processes
+%% @doc splits data messages into windowed messages and sends to worker processes.
+%% Each recursion either marks a new PID as active, removes a PID from the active 
+%% pool, or sends the current row to all active worker PIDs
 emitter(DMs, {StartPositions, StopPositions}, WorkerPids) ->
     emitter(DMs, StartPositions, StopPositions, WorkerPids, [], 0).
 emitter([DHead|DTail], [StartH|StartT], StopPositions, [WPidH|WPidT], ActivePids, CurrentPos) 

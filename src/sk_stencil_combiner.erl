@@ -9,16 +9,10 @@
 %%% element becomes a sub-list containing all its neighbours in a desired region
 %%% determined by the provided neighbourhood scheme. 
 %%%
-%%% NOTE: All neighbourhood sizes should be odd unless you wish uneven distribution 
-%%% on either side of each element
-%%%
-%%% Possible neighbourhood schemes;
-%%% {square, Size}           -    A square region of size Size x Size
-%%% {rect, SizeX, SizeY}     -    A rectangular region of size SizeX x SizeY
-%%% {cross, SizeX, SizeY}    -    A cross region of size SizeX x SizeY (same as rect but
-%%%                                 ignoring neighbours not on same axis as the element)
-%%% {coords, [{-1,-1},{0,0},{1,1},...]} - Defined list of offset coordinates from 0,0
-%%%
+%%% The stencil combiner waits to recieves input from a known number of workers.
+%%% Messages are re-ordered as they are recieved to preserve the original workflow
+%%% order before being returned to stencil's encompassing workflow.
+%%% 
 %%% @end
 %%%----------------------------------------------------------------------------
 -module(sk_stencil_combiner).
@@ -29,9 +23,9 @@
 
 -include("skel.hrl").
 
-%% @doc Starts the tagger, labelling each input so that the order of all 
-%% inputs is recorded. 
 -spec start(pid(), tuple()) -> 'eos'.
+%% @doc Starts stencil combiner, recieves
+%% and reorders data before sending to NextPID. 
 start(NextPid, NumWorkers) ->
     sk_tracer:t(75, self(), {?MODULE, start}, []),
     DMs = loop([],0,maps:new(),NumWorkers),
@@ -40,8 +34,9 @@ start(NextPid, NumWorkers) ->
     NextPid ! {system, eos}.
 
 -spec loop(list(), integer(), list(), integer()) -> 'eos'.
-%% @doc Recursively receives input, accumulating the data messages into a single
-%% 2-dimentional list which can then have the stencil functions applied to it.
+%% @doc Recursively receives input from workers, accumulating the data messages into a single
+%% 2-dimentional list. If an input is recieved out of order, it is added to a buffer map which
+%% gets flushed any time the next correct index is recieved.
 loop(Accum, WorkersReceived, _OrdBuffer, TotalWorkers) when WorkersReceived == TotalWorkers -> combine(Accum, []);
 loop(Accum, WorkersReceived, OrdBuffer, TotalWorkers) ->
   receive
@@ -60,7 +55,8 @@ combine(Data, Accum) ->
   [H|T] = Data,
   combine(T, H++Accum).
 
-%% @doc Iterates the buffer to find next index to add to accumulator
+%% @doc Looks up a buffer map for all sequential values starting at a key index. Returns all
+%% found values along with the new Index and buffer map containing any remaining key/value pairs.
 flush_buffer(Data, Index, Buffer) -> flush_buffer(Data, Index, Buffer, maps:is_key(Index, Buffer)).
 flush_buffer(Data, Index, Buffer, false) -> {Data, Index, Buffer};
 flush_buffer(Data, Index, Buffer, true) ->

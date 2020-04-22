@@ -71,6 +71,10 @@ parse({ord, WorkFlow}) ->
   sk_ord:make(WorkFlow);
 parse({stencil, WorkerFun, NumWorkers, Neighbourhood}) ->
   sk_stencil:make(WorkerFun, NumWorkers, Neighbourhood);
+parse({div_conquer, MergeFun, ConquerFun, SplitFun, MaxDepth}) ->
+  sk_divconquer:make(MergeFun, ConquerFun, SplitFun, MaxDepth);
+parse({div_conquer, WorkerFun, MaxDepth}) when is_tuple(WorkerFun) ->
+  sk_divconquer:make(WorkerFun, MaxDepth);
 parse({farm, WorkFlow, NWorkers}) ->
   sk_farm:make(NWorkers, WorkFlow);
 parse({hyb_farm, WorkFlowCPU, WorkFlowGPU, NCPUWorkers, NGPUWorkers}) ->

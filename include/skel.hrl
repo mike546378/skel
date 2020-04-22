@@ -16,7 +16,9 @@
                    | {hyb_map,  workflow(), workflow(), pos_integer(), pos_integer()}
                    | {reduce,   reduce_fun(), decomp_fun()}
                    | {feedback, workflow(), filter_fun()}
-                   | {stencil, worker_fun(), pos_integer(), pos_integer(), tuple()}.
+                   | {stencil, worker_fun(), pos_integer(), pos_integer(), tuple()}
+                   | {div_conquer, worker_fun(), worker_fun(), worker_fun(), pos_integer()}
+                   | {div_conquer, tuple(), pos_integer()}.
 % Workflow items (skeletons) and their content. 
 
 -type worker_fun()  :: fun((any())        -> any()). % Any function that is performed by a worker unit.
